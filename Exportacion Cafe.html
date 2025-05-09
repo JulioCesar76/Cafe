@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestión de Tickets - Exportación de Café</title>
+  <script src="https://www.gstatic.com/firebasejs/10.4.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.4.0/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.4.0/firebase-firestore.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f4; }
+    .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 10px; }
+    h2 { text-align: center; }
+    input, select, textarea, button { display: block; width: 100%; margin-bottom: 10px; padding: 10px; }
+    .ticket-card { border: 1px solid #ccc; border-radius: 10px; padding: 10px; margin-bottom: 10px; background: #fafafa; }
+    .flex { display: flex; justify-content: space-between; }
+    canvas { max-width: 100%; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Gestión de Tickets - Exportación de Café</h2>
+
+    <div id="auth-section">
+      <input type="email" id="email" placeholder="Correo Electrónico">
+      <input type="password" id="password" placeholder="Contraseña">
+      <button onclick="login()">Iniciar Sesión</button>
+      <button onclick="register()">Registrarse</button>
+      <button onclick="recoverPassword()">Recuperar Contraseña</button>
+    </div>
+
+    <div id="app-section" style="display:none">
+      <button onclick="logout()">Cerrar Sesión</button>
+      <h3>Crear Ticket</h3>
+      <input id="titulo" placeholder="Título del ticket">
+      <textarea id="descripcion" placeholder="Descripción"></textarea>
+      <select id="prioridad">
+        <option value="alta">Alta</option>
+        <option value="media">Media</option>
+        <option value="baja">Baja</option>
+      </select>
+      <select id="tipo">
+        <option value="pedido">Pedido</option>
+        <option value="incidente">Incidente</option>
+      </select>
+      <input id="cliente" placeholder="Nombre del Cliente">
+      <input id="pais" placeholder="País de Envío">
+      <input id="kilos" type="number" placeholder="Kilogramos">
+      <input id="producto" placeholder="Tipo de Producto">
+      <button onclick="crearTicket()">Guardar Ticket</button>
+
+      <h3>Tickets</h3>
+      <div id="tickets"></div>
+
+      <button onclick="exportarExcel()">Exportar Todos a Excel</button>
+
+      <h3>Estadísticas</h3>
+      <canvas id="chartPrioridad"></canvas>
+    </div>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCeTfmYT1Coq1ZNbZ7x4L1eQiC1rH2ubhc",
+      authDomain: "exportacion-de-cafe.firebaseapp.com",
+      projectId: "exportacion-de-cafe",
+      storageBucket: "exportacion-de-cafe.firebasestorage.app",
+      messagingSenderId: "214769204150",
+      appId: "1:214769204150:web:7721a7a2a3bc5207c89f17"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    auth.onAuthStateChanged(user => {
+      document.getElementById('auth-section').style.display = user ? 'none' : 'block';
+      document.getElementById('app-section').style.display = user ? 'block' : 'none';
+      if (user) cargarTickets();
+    });
+
+    function login() {
+      const email = document.getElementById('email').value;
+      const pass = document.getElementById('password').value;
+      auth.signInWithEmailAndPassword(email, pass).catch(alert);
+    }
+
+    function register() {
+      const email = document.getElementById('email').value;
+      const pass = document.getElementById('password').value;
+      auth.createUserWithEmailAndPassword(email, pass).catch(alert);
+    }
+
+    function recoverPassword() {
+      const email = document.getElementById('email').value;
+      auth.sendPasswordResetEmail(email).then(() => alert('Correo de recuperación enviado')).catch(alert);
+    }
+
+    function logout() { auth.signOut(); }
+
+    function crearTicket() {
+      const folio = 'F' + Date.now();
+      const ticket = {
+        folio,
+        titulo: document.getElementById('titulo').value,
+        descripcion: document.getElementById('descripcion').value,
+        prioridad: document.getElementById('prioridad').value,
+        tipo: document.getElementById('tipo').value,
+        cliente: document.getElementById('cliente').value,
+        pais: document.getElementById('pais').value,
+        kilos: parseFloat(document.getElementById('kilos').value),
+        producto: document.getElementById('producto').value,
+        estado: 'abierto',
+        uid: auth.currentUser.uid,
+        timestamp: Date.now()
+      };
+      db.collection('tickets').add(ticket).then(() => cargarTickets());
+    }
+
+    function cargarTickets() {
+      db.collection('tickets').where('uid', '==', auth.currentUser.uid).get().then(snapshot => {
+        const tickets = [];
+        let html = '';
+        snapshot.forEach(doc => {
+          const t = doc.data();
+          tickets.push(t);
+          html += `
+            <div class="ticket-card">
+              <b>Folio:</b> ${t.folio}<br>
+              <b>Título:</b> ${t.titulo}<br>
+              <b>Cliente:</b> ${t.cliente} (${t.pais})<br>
+              <b>Kilos:</b> ${t.kilos}<br>
+              <b>Producto:</b> ${t.producto}<br>
+              <b>Prioridad:</b> ${t.prioridad}<br>
+              <button onclick='exportarPDF(${JSON.stringify(t)})'>Exportar PDF</button>
+            </div>
+          `;
+        });
+        document.getElementById('tickets').innerHTML = html;
+        actualizarGrafico(tickets);
+      });
+    }
+
+    function exportarPDF(ticket) {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.text(`Ticket - ${ticket.folio}`, 10, 10);
+      Object.entries(ticket).forEach(([k, v], i) => {
+        doc.text(`${k}: ${v}`, 10, 20 + i * 10);
+      });
+      doc.save(`${ticket.folio}.pdf`);
+    }
+
+    function exportarExcel() {
+      db.collection('tickets').where('uid', '==', auth.currentUser.uid).get().then(snapshot => {
+        const rows = [];
+        snapshot.forEach(doc => rows.push(doc.data()));
+        const worksheet = XLSX.utils.json_to_sheet(rows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Tickets');
+        XLSX.writeFile(workbook, 'tickets_exportacion.xlsx');
+      });
+    }
+
+    function actualizarGrafico(tickets) {
+      const conteo = { alta: 0, media: 0, baja: 0 };
+      tickets.forEach(t => conteo[t.prioridad]++);
+      const ctx = document.getElementById('chartPrioridad').getContext('2d');
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['Alta', 'Media', 'Baja'],
+          datasets: [{
+            label: 'Tickets por Prioridad',
+            data: [conteo.alta, conteo.media, conteo.baja],
+            backgroundColor: ['#e74c3c', '#f1c40f', '#2ecc71']
+          }]
+        }
+      });
+    }
+  </script>
+</body>
+</html>
